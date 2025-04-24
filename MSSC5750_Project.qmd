@@ -81,7 +81,7 @@ ggplot(data=data %>% mutate(person_income2 = if_else(person_income<250000,person
  Outline for LASSO regression to help with variable selection
 ```{R}
 
-# One-hot-encoding our categorical variables. Should happen automatically for factors
+# Preparing categorical variables. Should happen automatically for factors
 data$person_gender <- as.factor(data$person_gender)
 data$person_home_ownership<-as.factor(data$person_home_ownership)
 data$loan_intent<-as.factor(data$loan_intent)
