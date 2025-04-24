@@ -10,6 +10,9 @@ library(MASS)
 library(ggplot2)
 library(dplyr)
 library(scales)
+library(glmnet)
+library(fastDummies)
+library(caret)
 
 # Importing data set from github repository
 data <- read.csv("https://raw.githubusercontent.com/Pburns525/MSSC5750-Project/refs/heads/main/loan_data.csv")
@@ -75,8 +78,37 @@ ggplot(data=data %>% mutate(person_income2 = if_else(person_income<250000,person
 ```
 
 
+ Outline for LASSO regression to help with variable selection
+```{R}
 
+# One-hot-encoding our categorical variables. Should happen automatically for factors
+data$person_gender <- as.factor(data$person_gender)
+data$person_home_ownership<-as.factor(data$person_home_ownership)
+data$loan_intent<-as.factor(data$loan_intent)
+data$previous_loan_defaults_on_file<-as.factor(data$previous_loan_defaults_on_file)
 
+# Extracting outcome variable
+class <- data$loan_status
+
+# Converting to a matrix
+matrixData <- model.matrix(class ~ ., data = data %>% select(-loan_status))
+
+# First column is all intercepts
+matrixData<- matrixData[,-1]
+
+# Uses cross validation, no need to train/test split. Alpha selects lasso (rather than ridge regression), but I think thats the default anyways
+lasso <- cv.glmnet(matrixData, class, alpha = 1, family = "binomial")
+
+# See coefficients, which variables we might drop
+coef(lasso)
+
+# Make predictions
+data$lassoPred <- as.vector(predict(lasso, newx = matrixData, type = "class"))
+
+# Evaluate accuracy measures
+confusionMatrix(factor(data$lassoPred), factor(data$loan_status), positive = '1')
+
+```
 
 
 
