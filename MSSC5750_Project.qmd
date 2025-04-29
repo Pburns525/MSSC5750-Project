@@ -110,5 +110,40 @@ confusionMatrix(factor(data$lassoPred), factor(data$loan_status), positive = '1'
 
 ```
 
+Now doing a basic logistic regression with/without lasso selection
+```{R}
+
+# We need a train/test split. We will use 80/20
+# can use uniform distribution, set seed for reproducability
+set.seed(100)
+forTrain<-runif(nrow(data))<.8
+
+trainData<-data[forTrain,]
+testData<-data[!forTrain,]
+
+# First creating logistic regression with all our variables
+logModel <- glm(loan_status ~ person_age + person_gender + person_education + person_income + person_emp_exp + person_home_ownership +loan_amnt + loan_intent + loan_int_rate + loan_percent_income + cb_person_cred_hist_length + credit_score + previous_loan_defaults_on_file, data=trainData, family= binomial )
+
+# Repeating but removing the variables not relevant in lasso
+# removed(person cred length, person_emp_exp person_income person_gender person_education person_age)
+logModelLasso <- glm(loan_status ~ person_home_ownership +loan_amnt + loan_intent + loan_int_rate + loan_percent_income  + credit_score + previous_loan_defaults_on_file, data=trainData, family= binomial )
+
+testData$logisticPred <- round(predict(logModel, testData, type='response'))
+testData$logisticLassoPred <- round(predict(logModelLasso, testData, type='response'))
+
+# Matrix for regular log
+confusionMatrix(factor(testData$logisticPred), factor(testData$loan_status), positive = '1')
+
+# Matrix for lasso log
+confusionMatrix(factor(testData$logisticLassoPred), factor(testData$loan_status), positive = '1')
+
+
+```
+
+
+
+
+
+
 
 
