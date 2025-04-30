@@ -13,6 +13,10 @@ library(scales)
 library(glmnet)
 library(fastDummies)
 library(caret)
+library(shapr)
+library(shapviz)
+library(party)
+library(reshape2)
 
 # Importing data set from github repository
 data <- read.csv("https://raw.githubusercontent.com/Pburns525/MSSC5750-Project/refs/heads/main/loan_data.csv")
@@ -62,6 +66,15 @@ table(data$previous_loan_defaults_on_file)
 # 22% of our data receives a loan, so our dataset is imbalanced, but not too extreme
 percent(table(data$loan_status)[2]/nrow(data),accuracy=1)
 
+# Oddly higher credit score does not seem to make a difference
+cor(data$credit_score,data$loan_status)
+summary(data$credit_score)
+lowcred<-data %>% filter(credit_score<601)
+goodcred<-data %>% filter(credit_score>670)
+mean(lowcred$loan_status)
+mean(goodcred$loan_status)
+
+
 ```  
 
 Creating some basic visualizations
@@ -74,6 +87,10 @@ ggplot(data=data %>% filter(person_income<500000), aes(x=person_income)) +geom_h
 ggplot(data=data %>% mutate(person_income2 = if_else(person_income<250000,person_income,250000)), aes(x=person_income2)) +geom_histogram(bins=40, fill='steelblue',color='black') + xlab("Income") + ggtitle("Histogram of Income")+
   scale_x_continuous(breaks=seq(0,250000,50000), labels=c("$0","$50,000","$100,000","$150,000","$200,000","$250,000+") )
 
+temp<-data %>% summarize('0'=1-mean(loan_status),"1"=mean(loan_status) ,.by=loan_intent)
+intent<-melt(temp) %>% dplyr::rename(loan_status=variable)
+
+ggplot(data=intent, aes(x=loan_intent, y=value, group=loan_status, fill=loan_status)) + geom_col(position='stack')
 
 ```
 
@@ -140,7 +157,42 @@ confusionMatrix(factor(testData$logisticLassoPred), factor(testData$loan_status)
 
 ```
 
+Shap values/viz
+```{r}
+# Requires split out xtrain, ytrain, xtest... Also a combined x/ytrain
 
+# We will apply to lasso data
+
+# We need to manually generate the dummy variables and match naems to what the model created
+# coder<-dummyVars(~ person_home_ownership + loan_intent + previous_loan_defaults_on_file, data = data, fullRank = TRUE, sep='')
+# trainDataAdj<-cbind(trainData %>% select(-person_home_ownership, -loan_intent, -previous_loan_defaults_on_file), predict(coder, newdata = trainData) )
+# testDataAdj<-cbind(testData %>% select(-person_home_ownership, -loan_intent, -previous_loan_defaults_on_file), predict(coder, newdata = testData) )
+
+# Only want the columns that we included in lasso
+
+
+
+xtrain<-trainData %>% select(person_home_ownership ,loan_amnt , loan_intent , loan_int_rate , loan_percent_income  , credit_score , previous_loan_defaults_on_file)
+ytrain<-trainData %>% select(loan_status)
+xytrain<-trainData %>% select(person_home_ownership ,loan_amnt , loan_intent , loan_int_rate , loan_percent_income  , credit_score , previous_loan_defaults_on_file,loan_status)
+xtest<-testData  %>% select(person_home_ownership ,loan_amnt , loan_intent , loan_int_rate , loan_percent_income  , credit_score , previous_loan_defaults_on_file)
+
+# calculating shap is costly so we will reduce the size of the data we pass in
+
+# we will just explain on our train data as well for larger sample size
+set.seed(5)
+xtrainSmall <- xtrain[sample(nrow(xtrain), 1000), ]
+explainer<- shapr::explain(model=logModelLasso, x_train=xtrainSmall, x_explain=xtrainSmall, approach="ctree", phi0=mean(ytrain$loan_status))
+
+shp <- shapviz(explainer)
+sv_importance(shp)
+
+plot(explainer, plot_phi0 = FALSE, index_x_explain = 1)
+
+shapObj <-shapviz(explainer)
+sv_importance(shapObj, kind="beeswarm", show_numbers = TRUE, max_display=15)
+
+```
 
 
 
