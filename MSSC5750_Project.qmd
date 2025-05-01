@@ -61,7 +61,8 @@ table(data$person_home_ownership)
 summary(data$person_emp_exp)
 sum(data$person_emp_exp>70)
 
-table(data$previous_loan_defaults_on_file)
+# Hm. In every single case where there was a prior loan default, loan_status=0. We probably don't want to include this variable in anything explanatory
+table(data$previous_loan_defaults_on_file, data$loan_status)
 
 # 22% of our data receives a loan, so our dataset is imbalanced, but not too extreme
 percent(table(data$loan_status)[2]/nrow(data),accuracy=1)
@@ -95,20 +96,90 @@ ggplot(data=intent, aes(x=loan_intent, y=value, group=loan_status, fill=loan_sta
 ```
 
 
+Data cleaning
+```{R}
+
+data2<-data
+######## Transformation of variables ########
+
+#### person_income ####
+
+# Salary is extremely right skewed, lets use the log transformation. Minimum is 8000 so we do not need to add a constant
+min(data2$person_income)
+data2$log_person_income <- log(data2$person_income)
+
+# Our max is still way larger than our 3rd quartile, so maybe we should cap salary before transformation
+summary(data2$log_person_income)
+data2$log_person_income<-log(ifelse(data2$person_income>500000,500000,data2$person_income))
+
+# Better
+summary(data2$log_person_income)
+
+
+#### person_emp_exp ####
+
+# Employee experience also very skewed. And some of the values dont really make any sense. Log transformation can fix this too
+summary(data2$person_emp_exp)
+
+# First replace extreme (impossible) values with something realistic
+data2$person_emp_exp<-ifelse(data2$person_emp_exp>50,50,data2$person_emp_exp)
+
+data2$log_person_emp_exp <- log(data2$person_emp_exp+.5)
+
+# Better
+summary(data2$log_person_emp_exp)
+
+
+#### Age  ####
+# We need to bucket our age. Theres no way we actually have someone aged 144, and 75% of our data falls between 20-30
+data2<- data2 %>% mutate(person_age = case_when(person_age<25 ~ "<25",
+                                                person_age<=30 ~"25-30",
+                                                person_age<45 ~ "31-44",
+                                                person_age<60 ~ "45-59",
+                                                TRUE ~ "60+"))
+
+data2$person_age<-as.factor(data2$person_age)
+table(data2$person_age)
+
+####  cred hist length  ####
+# Only a handful fall >=18, we will just cap it all there as a "catch all", but leave as numeric
+table(data2$cb_person_cred_hist_length)
+data2$cb_person_cred_hist_length <- ifelse(data2$cb_person_cred_hist_length>18,18, data2$cb_person_cred_hist_length)
+
+
+
+######## One hot encoding for categorical variables ########
+
+# Preparing categorical variables.
+data2$person_gender <- as.factor(data2$person_gender)
+data2$person_home_ownership<-as.factor(data2$person_home_ownership)
+data2$loan_intent<-as.factor(data2$loan_intent)
+data2$previous_loan_defaults_on_file<-as.factor(data2$previous_loan_defaults_on_file)
+
+# One hot encoding for categorical variables
+data3 <- dummy_cols(data2, remove_first_dummy = FALSE, remove_selected_columns = TRUE)
+
+# we should remove first dummy to prevent multicolinnearity , need to keep track of what was dropped because that is our reference value
+data3<-data3 %>% select(-c("person_gender_female","person_education_High School","person_home_ownership_MORTGAGE", "loan_intent_DEBTCONSOLIDATION", "previous_loan_defaults_on_file_No", "person_age_<25"))
+
+
+
+
+# replacing base data with cleaner version now
+cleanData <- data3
+
+```
+
+
  Outline for LASSO regression to help with variable selection
 ```{R}
 
-# Preparing categorical variables. Should happen automatically for factors
-data$person_gender <- as.factor(data$person_gender)
-data$person_home_ownership<-as.factor(data$person_home_ownership)
-data$loan_intent<-as.factor(data$loan_intent)
-data$previous_loan_defaults_on_file<-as.factor(data$previous_loan_defaults_on_file)
 
 # Extracting outcome variable
-class <- data$loan_status
+class <- cleanData$loan_status
 
-# Converting to a matrix
-matrixData <- model.matrix(class ~ ., data = data %>% select(-loan_status))
+# Converting to a matrix, exclude the non-log-transformed, and also the prior loan default
+matrixData <- model.matrix(class ~ ., data = cleanData %>% select(-c("loan_status", "person_income", "person_emp_exp", "previous_loan_defaults_on_file_Yes") ))
 
 # First column is all intercepts
 matrixData<- matrixData[,-1]
@@ -117,13 +188,18 @@ matrixData<- matrixData[,-1]
 lasso <- cv.glmnet(matrixData, class, alpha = 1, family = "binomial")
 
 # See coefficients, which variables we might drop
+# Now that we switched to log income, variable is no longer being dropped. We will proceed with log_income
 coef(lasso)
 
 # Make predictions
-data$lassoPred <- as.vector(predict(lasso, newx = matrixData, type = "class"))
+cleanData$lassoPred <- as.vector(predict(lasso, newx = matrixData, type = "class"))
 
 # Evaluate accuracy measures
-confusionMatrix(factor(data$lassoPred), factor(data$loan_status), positive = '1')
+confusionMatrix(factor(cleanData$lassoPred), factor(cleanData$loan_status), positive = '1')
+
+# And again with our loan_default knowledge:
+confusionMatrix(factor( ifelse(cleanData$previous_loan_defaults_on_file_Yes==1,0,cleanData$lassoPred)), factor(cleanData$loan_status), positive = '1')
+
 
 ```
 
@@ -133,17 +209,16 @@ Now doing a basic logistic regression with/without lasso selection
 # We need a train/test split. We will use 80/20
 # can use uniform distribution, set seed for reproducability
 set.seed(100)
-forTrain<-runif(nrow(data))<.8
+forTrain<-runif(nrow(cleanData))<.8
 
-trainData<-data[forTrain,]
-testData<-data[!forTrain,]
+trainData<-cleanData[forTrain,]
+testData<-cleanData[!forTrain,]
 
 # First creating logistic regression with all our variables
-logModel <- glm(loan_status ~ person_age + person_gender + person_education + person_income + person_emp_exp + person_home_ownership +loan_amnt + loan_intent + loan_int_rate + loan_percent_income + cb_person_cred_hist_length + credit_score + previous_loan_defaults_on_file, data=trainData, family= binomial )
+logModel <- glm(loan_status ~ . , data=trainData %>% select(-c("lassoPred", "person_income", "person_emp_exp", "previous_loan_defaults_on_file_Yes")), family= binomial )
 
-# Repeating but removing the variables not relevant in lasso
-# removed(person cred length, person_emp_exp person_income person_gender person_education person_age)
-logModelLasso <- glm(loan_status ~ person_home_ownership +loan_amnt + loan_intent + loan_int_rate + loan_percent_income  + credit_score + previous_loan_defaults_on_file, data=trainData, family= binomial )
+# Repeating but only with variables selected by lasso
+logModelLasso <- glm(loan_status ~ loan_int_rate + loan_percent_income + log_person_income + person_home_ownership_OTHER + person_home_ownership_OWN + person_home_ownership_RENT + loan_intent_EDUCATION + loan_intent_HOMEIMPROVEMENT + loan_intent_PERSONAL + loan_intent_VENTURE, data=trainData, family= binomial )
 
 testData$logisticPred <- round(predict(logModel, testData, type='response'))
 testData$logisticLassoPred <- round(predict(logModelLasso, testData, type='response'))
@@ -155,7 +230,60 @@ confusionMatrix(factor(testData$logisticPred), factor(testData$loan_status), pos
 confusionMatrix(factor(testData$logisticLassoPred), factor(testData$loan_status), positive = '1')
 
 
+# Our training data is still heavily imbalanced, repeating again for rebalanced data
+table(trainData$loan_status)
+ones<-trainData %>% filter(loan_status==1)
+set.seed(5)
+zeros<-trainData %>% filter(loan_status==0) %>% sample_n(8000)
+trainDataBalanced<-rbind(ones,zeros)
+table(trainDataBalanced$loan_status)
+
+rebalancedLog <- glm(loan_status ~ . , data=trainDataBalanced %>% select(-c("lassoPred", "person_income", "person_emp_exp", "previous_loan_defaults_on_file_Yes")), family= binomial )
+
+testData$rebalancedLog <- round(predict(rebalancedLog, testData, type='response'))
+
+# Matrix for regular log
+confusionMatrix(factor(testData$rebalancedLog), factor(testData$loan_status), positive = '1')
+
+
 ```
+
+
+Creating dataframe of results
+```{R}
+
+results<-data.frame(model=character(),accuracy=numeric(),sensitivity=numeric(),specificity=numeric())
+
+addresults<-function(name,res){
+  results<<-rbind(results, data.frame(model=name,accuracy=res$overall['Accuracy'],sensitivity=res$byClass['Sensitivity'],specificity=res$byClass['Specificity']) )
+}
+
+addresults('Lasso', confusionMatrix(factor( cleanData$lassoPred), factor(cleanData$loan_status), positive = '1'))
+addresults('Log', confusionMatrix(factor(testData$logisticPred), factor(testData$loan_status), positive = '1'))
+addresults('LogLasso', confusionMatrix(factor(testData$logisticLassoPred), factor(testData$loan_status), positive = '1'))
+addresults('LogBalanced', confusionMatrix(factor(testData$rebalancedLog), factor(testData$loan_status), positive = '1'))
+rownames(results)<-NULL
+results
+
+###################### Repeating for accuracy after applying logic for previous default ##############################
+
+results2<-data.frame(model=character(),accuracy=numeric(),sensitivity=numeric(),specificity=numeric())
+
+addresults2<-function(name,res){
+  results2<<-rbind(results2, data.frame(model=name,accuracy=res$overall['Accuracy'],sensitivity=res$byClass['Sensitivity'],specificity=res$byClass['Specificity']) )
+}
+
+addresults2('Lasso', confusionMatrix(factor(ifelse(cleanData$previous_loan_defaults_on_file_Yes==1,0,cleanData$lassoPred) ), factor(cleanData$loan_status), positive = '1'))
+addresults2('Log', confusionMatrix(factor( ifelse(testData$previous_loan_defaults_on_file_Yes==1,0, testData$logisticPred) ), factor(testData$loan_status), positive = '1'))
+addresults2('LogLasso', confusionMatrix(factor(ifelse(testData$previous_loan_defaults_on_file_Yes==1,0,testData$logisticLassoPred) ), factor(testData$loan_status), positive = '1'))
+addresults2('LogBalanced', confusionMatrix(factor(ifelse(testData$previous_loan_defaults_on_file_Yes==1,0,testData$rebalancedLog) ), factor(testData$loan_status), positive = '1'))
+rownames(results2)<-NULL
+results2
+
+```
+
+
+
 
 Shap values/viz
 ```{r}
@@ -188,7 +316,9 @@ shp <- shapviz(explainer)
 sv_importance(shp)
 
 plot(explainer, plot_phi0 = FALSE, index_x_explain = 1)
-####
+#### 
+
+###
 shapObj <-shapviz(explainer)
 sv_importance(shapObj, kind="beeswarm", show_numbers = TRUE, max_display=15)
 
