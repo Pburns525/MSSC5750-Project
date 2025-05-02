@@ -287,30 +287,19 @@ results2
 
 Shap values/viz
 ```{r}
-# Requires split out xtrain, ytrain, xtest... Also a combined x/ytrain
+# Requires split out xtrain, ytrain, xtest.
 
-# We will apply to lasso data
+xtrain<-trainDataBalanced %>% select(-c("lassoPred", "person_income", "person_emp_exp", "previous_loan_defaults_on_file_Yes", "loan_status"))
+ytrain<-trainDataBalanced %>% select(loan_status)
 
-# We need to manually generate the dummy variables and match naems to what the model created
-# coder<-dummyVars(~ person_home_ownership + loan_intent + previous_loan_defaults_on_file, data = data, fullRank = TRUE, sep='')
-# trainDataAdj<-cbind(trainData %>% select(-person_home_ownership, -loan_intent, -previous_loan_defaults_on_file), predict(coder, newdata = trainData) )
-# testDataAdj<-cbind(testData %>% select(-person_home_ownership, -loan_intent, -previous_loan_defaults_on_file), predict(coder, newdata = testData) )
-
-# Only want the columns that we included in lasso
-
-
-
-xtrain<-trainData %>% select(person_home_ownership ,loan_amnt , loan_intent , loan_int_rate , loan_percent_income  , credit_score , previous_loan_defaults_on_file)
-ytrain<-trainData %>% select(loan_status)
-xytrain<-trainData %>% select(person_home_ownership ,loan_amnt , loan_intent , loan_int_rate , loan_percent_income  , credit_score , previous_loan_defaults_on_file,loan_status)
-xtest<-testData  %>% select(person_home_ownership ,loan_amnt , loan_intent , loan_int_rate , loan_percent_income  , credit_score , previous_loan_defaults_on_file)
+xtest<-testData  %>% select(-c("lassoPred", "person_income", "person_emp_exp", "previous_loan_defaults_on_file_Yes", "loan_status", "logisticPred","logisticLassoPred", "rebalancedLog"))
 
 # calculating shap is costly so we will reduce the size of the data we pass in
 
 # we will just explain on our train data as well for larger sample size
 set.seed(5)
-xtrainSmall <- xtrain[sample(nrow(xtrain), 1000), ]
-explainer<- shapr::explain(model=logModelLasso, x_train=xtrainSmall, x_explain=xtrainSmall, approach="ctree", phi0=mean(ytrain$loan_status))
+xtestSmall <- xtest[sample(nrow(xtest), 250), ]
+explainer<- shapr::explain(model=rebalancedLog, x_train=xtrain, x_explain=xtestSmall, approach="ctree", phi0=mean(ytrain$loan_status))
 
 shp <- shapviz(explainer)
 sv_importance(shp)
@@ -320,7 +309,8 @@ plot(explainer, plot_phi0 = FALSE, index_x_explain = 1)
 
 ###
 shapObj <-shapviz(explainer)
-sv_importance(shapObj, kind="beeswarm", show_numbers = TRUE, max_display=15)
+sv_importance(shapObj, kind="beeswarm", show_numbers = TRUE, max_display=25)
+sv_importance(shapObj, kind="beeswarm", show_numbers = TRUE, max_display=10)
 
 ```
 
