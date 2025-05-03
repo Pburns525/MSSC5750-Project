@@ -125,7 +125,7 @@ ggplot(data=educ %>% filter(loan_status==1), aes(x=person_education, y=value)) +
   theme(panel.grid.minor.y=element_blank())
 
 ### cred hist length
-ggplot(data=data %>% summarize(count=n(),.by=cb_person_cred_hist_length), aes(x= cb_person_cred_hist_length, y=count)) + geom_col(fill='steelblue')
+ggplot(data=data %>% summarize(count=n(),.by=cb_person_cred_hist_length), aes(x= cb_person_cred_hist_length, y=count)) + geom_col(fill='steelblue') + ggtitle('Frequencies for credit history length')
 
 ```
 
@@ -296,7 +296,6 @@ addresults('Lasso', confusionMatrix(factor( cleanData$lassoPred), factor(cleanDa
 addresults('Log', confusionMatrix(factor(testData$logisticPred), factor(testData$loan_status), positive = '1'))
 addresults('LogLasso', confusionMatrix(factor(testData$logisticLassoPred), factor(testData$loan_status), positive = '1'))
 addresults('LogBalanced', confusionMatrix(factor(testData$rebalancedLog), factor(testData$loan_status), positive = '1'))
-rownames(results)<-NULL
 results
 
 ###################### Repeating for accuracy after applying logic for previous default ##############################
@@ -311,7 +310,6 @@ addresults2('Lasso', confusionMatrix(factor(ifelse(cleanData$previous_loan_defau
 addresults2('Log', confusionMatrix(factor( ifelse(testData$previous_loan_defaults_on_file_Yes==1,0, testData$logisticPred) ), factor(testData$loan_status), positive = '1'))
 addresults2('LogLasso', confusionMatrix(factor(ifelse(testData$previous_loan_defaults_on_file_Yes==1,0,testData$logisticLassoPred) ), factor(testData$loan_status), positive = '1'))
 addresults2('LogBalanced', confusionMatrix(factor(ifelse(testData$previous_loan_defaults_on_file_Yes==1,0,testData$rebalancedLog) ), factor(testData$loan_status), positive = '1'))
-rownames(results2)<-NULL
 results2
 
 ```
@@ -350,18 +348,20 @@ sv_importance(shapObj, kind="beeswarm", show_numbers = TRUE, max_display=10)
 
 ## ADD CODE FOR LDA
 
+```{r}
 
 library(tidyverse)
 library(MASS)
+loan_data <- read.csv("https://raw.githubusercontent.com/Pburns525/MSSC5750-Project/refs/heads/main/loan_data.csv")
 bankr<-data.frame(loan_data$person_age,loan_data$person_income,loan_data$person_emp_exp,loan_data$loan_amnt,
                   loan_data$loan_int_rate,loan_data$loan_percent_income,loan_data$cb_person_cred_hist_length,
-                  loan_data$credit_score,loan_data$previous_loan_defaults_on_file)
+                  loan_data$credit_score,loan_data$loan_status)
 
 head(bankr)
 
 
 
-lda_desc<-lda(loan_data$previous_loan_defaults_on_file~loan_data$person_age+
+lda_desc<-lda(loan_data$loan_status~loan_data$person_age+
                 loan_data$person_income + loan_data$person_emp_exp+loan_data$loan_amnt +
                 loan_data$loan_int_rate+ loan_data$loan_percent_income+loan_data$cb_person_cred_hist_length+
                 loan_data$credit_score,data=bankr )
@@ -376,32 +376,35 @@ a
 library(MVN)
 library(tidyverse)
 
-previous_default<-bankr%>%
-  filter(loan_data.previous_loan_defaults_on_file=="Yes")%>%
-  select(-loan_data.previous_loan_defaults_on_file)
-  s1<-cov(previous_default)
+# renaming previous_default to loan_approved
+# previous name previous_default
+loan_repaid<-bankr %>%
+  filter(loan_data.loan_status==1) %>%
+  select(-loan_data.loan_status)
+  s1<-cov(loan_repaid)
   
   s1
   
   
 
-previous_default
+loan_repaid
 # Checking for multivariate normality
-defaulterscheck<-mvn(previous_default[,1:8],mvnTest = "mardia")$multivariateNormality
-print(defaulterscheck)
+repaycheck<-mvn(loan_repaid[,1:8],mvnTest = "mardia")$multivariateNormality
+print(repaycheck)
 
 #separate groups into two and compute sample covariance matrix
-no_default<-bankr%>%
-  filter(loan_data.previous_loan_defaults_on_file =="No")%>%
-  select(-loan_data.previous_loan_defaults_on_file)
-s2<-cov(no_default)
+# previous name no_default
+loan_default<-bankr%>%
+  filter(loan_data.loan_status ==0)%>%
+  select(-loan_data.loan_status)
+s2<-cov(loan_default)
 s2
 
 # pooled sample covariance matrix  is :
 
-n1<-nrow(previous_default)
+n1<-nrow(loan_repaid)
 
-n2<-nrow(no_default)
+n2<-nrow(loan_default)
 
 Spl<-1/(n1+n2-2)*((n1-1)*s1 +(n2-1)*s2)
 
@@ -426,15 +429,15 @@ a.star
 
 library(tidyverse)
 ggplot(bankr,aes(x=loan_data$person_age,y=loan_data$loan_percent_income,
-                 color=factor(loan_data$previous_loan_defaults_on_file)))+
+                 color=factor(loan_data$loan_status)))+
   geom_point()+ labs(xlab="Age",ylab = "debt-to-incomes")+
-  scale_color_discrete(name="loan_data$previous_loan_defaults_on_file")
+  scale_color_discrete(name="loan_data$loan_status")
 
 
 
-non_defaultcheck<-mvn(no_default[,1:8],mvnTest = "mardia")$multivariateNormality
+repaidCheck<-mvn(loan_repaid[,1:8],mvnTest = "mardia")$multivariateNormality
 
-print(non_defaultcheck)
+print(repaidCheck)
 
 pca_bank<-prcomp(bankr[,1:8],scale. = TRUE)
 summary(pca_bank)
@@ -443,7 +446,7 @@ pca_bank # pca to confirm the variability in data set and ranking of variables
            # in discrimination  b/w 2 groups
 
 
-lda2<-lda(loan_data.previous_loan_defaults_on_file~loan_data.person_age + loan_data.person_income+
+lda2<-lda(loan_data.loan_status~loan_data.person_age + loan_data.person_income+
             loan_data.person_emp_exp +loan_data.loan_amnt,data =bankr)
 
 lda2
@@ -456,18 +459,18 @@ library(Hotelling)
 loans.test<-hotelling.test(loan_data$person_age+
     loan_data$person_income + loan_data$person_emp_exp+loan_data$loan_amnt +
     loan_data$loan_int_rate+ loan_data$loan_percent_income+loan_data$cb_person_cred_hist_length+
-    loan_data$credit_score~factor(loan_data$previous_loan_defaults_on_file),data=bankr )
+    loan_data$credit_score~factor(loan_data$loan_status),data=bankr )
 
 loans.test
 
 #LDA-Predict groups-taking a predictive view
 
-lda3<-lda(loan_data$previous_loan_defaults_on_file~loan_data$person_age+
+lda3<-lda(loan_data$loan_status~loan_data$person_age+
             loan_data$person_income + loan_data$person_emp_exp+loan_data$loan_amnt +
             loan_data$loan_int_rate+ loan_data$loan_percent_income+loan_data$cb_person_cred_hist_length+
             loan_data$credit_score,prior=c(0.5,0.5),data=bankr )
 lda3.results<-bankr%>%
-  mutate(classify.loan_data.previous_loan_defaults_on_file=predict(lda3)$class)
+  mutate(classify.loan_data.loan_status=predict(lda3)$class)
 
 lda3.results
 
@@ -485,7 +488,7 @@ cutoff<-0.5*(zbar1+zbar2)
 cutoff
 
 #checking classification results
-with(lda3.results,table(loan_data.previous_loan_defaults_on_file,classify.loan_data.previous_loan_defaults_on_file))
+with(lda3.results,table(loan_data.loan_status,classify.loan_data.loan_status))
 
 
 #Classification Analysis Result
@@ -498,6 +501,22 @@ with(lda3.results,table(loan_data.previous_loan_defaults_on_file,classify.loan_d
 
 pairs(bankr[,1:8])
 
+
+```
+
+
+Adding LDA results to table
+```{R}
+
+addresults('LDA', confusionMatrix(factor( lda3.results$classify.loan_data.loan_status), factor(lda3.results$loan_data.loan_status), positive = '1'))
+rownames(results)<-NULL
+
+# rejoining to get back the previous default data
+temp <- lda3.results %>% left_join(data %>% select(person_age, person_income, loan_percent_income, person_emp_exp,credit_score,loan_int_rate,previous_loan_defaults_on_file), by=c("loan_data.person_age"="person_age", "loan_data.person_income"="person_income", "loan_data.loan_percent_income"="loan_percent_income", "loan_data.person_emp_exp" = "person_emp_exp", "loan_data.credit_score"="credit_score", "loan_data.loan_int_rate"= "loan_int_rate")) %>% mutate(classify.loan_data.loan_status=as.numeric(classify.loan_data.loan_status)-1)
+
+addresults2('LDA', confusionMatrix(factor( ifelse(temp$previous_loan_defaults_on_file=='Yes',0,temp$classify.loan_data.loan_status ) ), factor(temp$loan_data.loan_status), positive = '1'))
+rownames(results2)<-NULL
+```
 
 
 
