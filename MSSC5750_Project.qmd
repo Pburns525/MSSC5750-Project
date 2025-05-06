@@ -524,6 +524,31 @@ cbind("Model"=results2[,1],round(results2[,2:4],3))
 ```
 
 
+Redoing Lasso removing percent income
+```{r}
+
+
+# Extracting outcome variable
+class <- cleanData$loan_status
+
+# Converting to a matrix, exclude the non-log-transformed, and also the prior loan default
+matrixData <- model.matrix(class ~ ., data = cleanData %>% select(-c("loan_status", "person_income", "person_emp_exp", "previous_loan_defaults_on_file_Yes", "loan_percent_income") ))
+
+# First column is all intercepts
+matrixData<- matrixData[,-1]
+
+# Uses cross validation, no need to train/test split. Alpha selects lasso (rather than ridge regression), but I think thats the default anyways
+lasso <- cv.glmnet(matrixData, class, alpha = 1, family = "binomial")
+
+# See coefficients, which variables we might drop
+# Now that we switched to log income, variable is no longer being dropped. We will proceed with log_income
+coef(lasso)
+
+
+```
+
+
+```
 
 
 
